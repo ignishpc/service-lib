@@ -1,0 +1,71 @@
+#!/bin/env bash
+
+#ignis.service.secure 
+#ignis.service.cert
+#ignis.service.ca
+#ignis.service.user
+#ignis.service.$password$
+
+if [ "$#" -lt 2 ]; then
+    echo "Usage ignis-service <port> <service_name> [service_args]..."
+fi
+
+SERVICE="ignis-$2-service"
+export IGNIS_SERVICE_PORT="$1"
+export IGNIS_SERVICE_USOCK=${IGNIS_JOB_SOCKETS}/"$2".sock
+export IGNIS_SERVICE_DIR=${IGNIS_JOB_DIR}/service
+export IGNIS_SERVICE_TMP=${IGNIS_JOB_CONTAINER_DIR}/service/tmp
+
+if [ ! -f ${SERVICE} ];then
+  echo "service $2 not found"
+  exit -1
+fi
+
+mkdir -p -m 700 ${IGNIS_SERVICE_DIR}
+mkdir -p -m 700 ${IGNIS_SERVICE_TMP}
+
+if [ -n "${_IGNIS_SERVICE_PASSWORD}" ];then
+  export IGNIS_SERVICE_AUTH=on
+  export IGNIS_SERVICE_AUTH_FILE=${IGNIS_SERVICE_TMP}/htpasswd
+  touch ${IGNIS_SERVICE_AUTH_FILE}
+  if [ -z "${IGNIS_SERVICE_USER}" ];then
+    export IGNIS_SERVICE_USER="$USER"
+  fi
+  ignis-crypto decode ${_IGNIS_SERVICE_PASSWORD} | htpasswd -c -i ${IGNIS_SERVICE_AUTH_FILE} ${IGNIS_SERVICE_USER}
+  
+else
+  export IGNIS_SERVICE_AUTH="off"
+  export IGNIS_SERVICE_AUTH_FILE="none"
+fi
+
+if [ "${IGNIS_SERVICE_SERCURE}" == "true" ]; then
+  export IGNIS_SERVICE_SSL=on
+  if [ -z "${IGNIS_SERVICE_CERT}" ] || [ -z "${IGNIS_SERVICE_CA}" ]; then
+    export IGNIS_SERVICE_CERT=${IGNIS_SERVICE_TMP}/domain.key
+    export IGNIS_SERVICE_CA=${IGNIS_SERVICE_TMP}/domain.cert
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+     -keyout ${IGNIS_SERVICE_CERT} \
+     -out ${IGNIS_SERVICE_CA} 
+     -subj '/C=ig/ST=ignis/L=ignis/O=ignis/CN=www.ignishpc.readthedocs.io'
+  fi
+  
+else
+  export IGNIS_SERVICE_SSL=off
+  export IGNIS_SERVICE_CERT=""
+  export IGNIS_SERVICE_CA=""
+fi
+
+envsubst <${IGNIS_HOME}/etc/reverse_proxy.conf | sponge ${PROXY_DIR}/reverse_proxy.conf
+
+unset IGNIS_SERVICE_PORT
+unset IGNIS_SERVICE_DIR
+unset IGNIS_SERVICE_USOCK
+unset IGNIS_SERVICE_TMP
+unset IGNIS_SERVICE_AUTH
+unset IGNIS_SERVICE_AUTH_FILE
+unset IGNIS_SERVICE_SSL
+
+nginx -c ${PROXY_DIR}/reverse_proxy.conf & NPID=$!
+${SERVICE} ${@:2} & SPID=$!
+wait ${SPID}
+kill ${NPID}
