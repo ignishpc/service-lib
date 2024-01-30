@@ -7,65 +7,68 @@
 #ignis.service.$password$
 
 if [ "$#" -lt 2 ]; then
-    echo "Usage ignis-service <port> <service_name> [service_args]..."
+    echo "Usage ignis-service <port> <service_name> [service_args]..." 1>&2
 fi
 
-SERVICE="ignis-$2-service"
-export IGNIS_SERVICE_PORT="$1"
+SERVICE=$(type -P "ignis-$2-service")
 export IGNIS_SERVICE_USOCK=${IGNIS_JOB_SOCKETS}/"$2".sock
 export IGNIS_SERVICE_DIR=${IGNIS_JOB_DIR}/service
-export IGNIS_SERVICE_TMP=${IGNIS_JOB_CONTAINER_DIR}/service/tmp
+export IGNIS_SERVICE_TMP=${IGNIS_JOB_CONTAINER_DIR}/service
 
 if [ ! -f ${SERVICE} ];then
-  echo "service $2 not found"
+  echo "service $2 not found" 1>&2
   exit -1
 fi
 
-mkdir -p -m 700 ${IGNIS_SERVICE_DIR}
 mkdir -p -m 700 ${IGNIS_SERVICE_TMP}
+mkdir -p -m 700 ${IGNIS_SERVICE_DIR}
+mkdir -p -m 700 ${IGNIS_JOB_SOCKETS}
 
 if [ -n "${_IGNIS_SERVICE_PASSWORD}" ];then
   export IGNIS_SERVICE_AUTH=on
-  export IGNIS_SERVICE_AUTH_FILE=${IGNIS_SERVICE_TMP}/htpasswd
+  IGNIS_SERVICE_AUTH_FILE=${IGNIS_SERVICE_TMP}/htpasswd
   touch ${IGNIS_SERVICE_AUTH_FILE}
   if [ -z "${IGNIS_SERVICE_USER}" ];then
     export IGNIS_SERVICE_USER="$USER"
   fi
   ignis-crypto decode ${_IGNIS_SERVICE_PASSWORD} | htpasswd -c -i ${IGNIS_SERVICE_AUTH_FILE} ${IGNIS_SERVICE_USER}
-  
+  export IGNIS_SERVICE_AUTH_FILE="auth_basic_user_file ${IGNIS_SERVICE_AUTH_FILE};"
 else
   export IGNIS_SERVICE_AUTH="off"
-  export IGNIS_SERVICE_AUTH_FILE="none"
+  export IGNIS_SERVICE_AUTH_FILE=""
 fi
 
 if [ "${IGNIS_SERVICE_SERCURE}" == "true" ]; then
-  export IGNIS_SERVICE_SSL=on
   if [ -z "${IGNIS_SERVICE_CERT}" ] || [ -z "${IGNIS_SERVICE_CA}" ]; then
-    export IGNIS_SERVICE_CERT=${IGNIS_SERVICE_TMP}/domain.key
-    export IGNIS_SERVICE_CA=${IGNIS_SERVICE_TMP}/domain.cert
+    IGNIS_SERVICE_CERT=${IGNIS_SERVICE_TMP}/domain.key
+    IGNIS_SERVICE_CA=${IGNIS_SERVICE_TMP}/domain.cert
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
      -keyout ${IGNIS_SERVICE_CERT} \
      -out ${IGNIS_SERVICE_CA} 
      -subj '/C=ig/ST=ignis/L=ignis/O=ignis/CN=www.ignishpc.readthedocs.io'
   fi
+  export IGNIS_SERVICE_PORT="$1 ssl"
+  export IGNIS_SERVICE_CERT="ssl_certificate_key ${IGNIS_SERVICE_CERT};"
+  export IGNIS_SERVICE_CA="ssl_certificate ${IGNIS_SERVICE_CA};"
   
 else
-  export IGNIS_SERVICE_SSL=off
+  export IGNIS_SERVICE_PORT="$1"
   export IGNIS_SERVICE_CERT=""
   export IGNIS_SERVICE_CA=""
 fi
 
-envsubst <${IGNIS_HOME}/etc/reverse_proxy.conf | sponge ${PROXY_DIR}/reverse_proxy.conf
+export IGNIS_SERVICE_USER=$(stat -c "%U %G" ${IGNIS_JOB_SOCKETS})
+PROXY_DIR=${IGNIS_SERVICE_TMP}
+VARS='$IGNIS_SERVICE_USER $IGNIS_SERVICE_DIR $IGNIS_SERVICE_PORT $IGNIS_SERVICE_AUTH $IGNIS_SERVICE_AUTH_FILE $IGNIS_SERVICE_CA $IGNIS_SERVICE_CERT $IGNIS_SERVICE_USOCK'
+envsubst "${VARS}" <${IGNIS_HOME}/etc/reverse_proxy.conf >${PROXY_DIR}/reverse_proxy.conf
 
 unset IGNIS_SERVICE_PORT
-unset IGNIS_SERVICE_DIR
 unset IGNIS_SERVICE_USOCK
 unset IGNIS_SERVICE_TMP
 unset IGNIS_SERVICE_AUTH
 unset IGNIS_SERVICE_AUTH_FILE
-unset IGNIS_SERVICE_SSL
+unset IGNIS_SERVICE_USER
 
 nginx -c ${PROXY_DIR}/reverse_proxy.conf & NPID=$!
-${SERVICE} ${@:2} & SPID=$!
-wait ${SPID}
+${SERVICE} ${@:3}
 kill ${NPID}

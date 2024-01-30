@@ -6,4 +6,4 @@ ARG DOCK_DIR=""
 
 COPY ${DOCK_DIR}bin/* ${IGNIS_HOME}/bin/
 RUN chmod +x ${IGNIS_HOME}/bin/
-COPY ${DOCK_DIR}etc/* ${IGNIS_HOME}/etc/*
+COPY ${DOCK_DIR}etc/* ${IGNIS_HOME}/etc/
