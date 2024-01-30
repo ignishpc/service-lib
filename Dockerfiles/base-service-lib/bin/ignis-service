@@ -29,7 +29,7 @@ if [ -n "${_IGNIS_SERVICE_PASSWORD}" ];then
   IGNIS_SERVICE_AUTH_FILE=${IGNIS_SERVICE_TMP}/htpasswd
   touch ${IGNIS_SERVICE_AUTH_FILE}
   if [ -z "${IGNIS_SERVICE_USER}" ];then
-    export IGNIS_SERVICE_USER="$USER"
+    export IGNIS_SERVICE_USER=$(whoami)
   fi
   ignis-crypto decode ${_IGNIS_SERVICE_PASSWORD} | htpasswd -c -i ${IGNIS_SERVICE_AUTH_FILE} ${IGNIS_SERVICE_USER}
   export IGNIS_SERVICE_AUTH_FILE="auth_basic_user_file ${IGNIS_SERVICE_AUTH_FILE};"
